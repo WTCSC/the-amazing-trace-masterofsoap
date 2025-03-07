@@ -1,169 +1,169 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import subprocess
+import re
+import threading
 import matplotlib.pyplot as plt
-import pandas as pd
-import numpy as np
-from matplotlib.ticker import MaxNLocator
-import time
-import os
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
+# Function to execute traceroute
 def execute_traceroute(destination):
-    """
-    Executes a traceroute to the specified destination and returns the output.
+    try:
+        command = ["tracert", destination] if subprocess.os.name == "nt" else ["traceroute", "-I", destination]
+        result = subprocess.run(command, capture_output=True, text=True, check=True)
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        return f"Error: {e}"
 
-    Args:
-        destination (str): The hostname or IP address to trace
-
-    Returns:
-        str: The raw output from the traceroute command
-    """
-    # Your code here
-    # Hint: Use the subprocess module to run the traceroute command
-    # Make sure to handle potential errors
-
-    # Remove this line once you implement the function,
-    # and don't forget to *return* the output
-    pass
-
+# Function to parse traceroute output
 def parse_traceroute(traceroute_output):
-    """
-    Parses the raw traceroute output into a structured format.
+    hops = []
+    for line in traceroute_output.split("\n"):
+        match = re.match(r"\s*(\d+)\s+([\d\.]+|\*)\s+(\S+)?\s+([\d\.]+ ms)?\s+([\d\.]+ ms)?\s+([\d\.]+ ms)?", line)
+        if match:
+            hop = int(match.group(1))
+            ip = match.group(2) if match.group(2) != "*" else None
+            hostname = match.group(3) if match.group(3) != ip else None
+            rtts = [float(x.split()[0]) if x else None for x in match.groups()[3:]]
+            hops.append({"hop": hop, "ip": ip, "hostname": hostname, "rtt": rtts})
+    return hops
 
-    Args:
-        traceroute_output (str): Raw output from the traceroute command
+# Function to update the table with parsed data
+def update_table(tree, data):
+    tree.delete(*tree.get_children())  # Clear previous data
+    for hop in data:
+        rtt_avg = round(sum(filter(None, hop["rtt"])) / len(hop["rtt"]), 2) if any(hop["rtt"]) else "N/A"
+        tree.insert("", "end", values=(hop["hop"], hop["ip"], hop["hostname"], rtt_avg))
 
-    Returns:
-        list: A list of dictionaries, each containing information about a hop:
-            - 'hop': The hop number (int)
-            - 'ip': The IP address of the router (str or None if timeout)
-            - 'hostname': The hostname of the router (str or None if same as ip)
-            - 'rtt': List of round-trip times in ms (list of floats, None for timeouts)
+# Function to plot RTT graph
+def plot_graph(frame, data, title="Traceroute RTT Analysis", color="cyan"):
+    x = [hop["hop"] for hop in data]
+    y = [round(sum(filter(None, hop["rtt"])) / len(hop["rtt"]), 2) if any(hop["rtt"]) else 0 for hop in data]
 
-    Example:
-    ```
-        [
-            {
-                'hop': 1,
-                'ip': '172.21.160.1',
-                'hostname': 'HELDMANBACK.mshome.net',
-                'rtt': [0.334, 0.311, 0.302]
-            },
-            {
-                'hop': 2,
-                'ip': '10.103.29.254',
-                'hostname': None,
-                'rtt': [3.638, 3.630, 3.624]
-            },
-            {
-                'hop': 3,
-                'ip': None,  # For timeout/asterisk
-                'hostname': None,
-                'rtt': [None, None, None]
-            }
-        ]
-    ```
-    """
-    # Your code here
-    # Hint: Use regular expressions to extract the relevant information
-    # Handle timeouts (asterisks) appropriately
+    fig, ax = plt.subplots(facecolor="#1e1e1e")
+    ax.plot(x, y, marker="o", linestyle="-", color=color, label=title)
+    ax.set_xlabel("Hop Number", color="white")
+    ax.set_ylabel("Average RTT (ms)", color="white")
+    ax.set_title(title, color="white")
+    ax.legend()
+    ax.tick_params(colors="white")
+    ax.set_facecolor("#2b2b2b")
 
-    # Remove this line once you implement the function,
-    # and don't forget to *return* the output
-    pass
+    for widget in frame.winfo_children():
+        widget.destroy()
 
-# ============================================================================ #
-#                    DO NOT MODIFY THE CODE BELOW THIS LINE                    #
-# ============================================================================ #
-def visualize_traceroute(destination, num_traces=3, interval=5, output_dir='output'):
-    """
-    Runs multiple traceroutes to a destination and visualizes the results.
+    canvas = FigureCanvasTkAgg(fig, master=frame)
+    canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+    canvas.draw()
 
-    Args:
-        destination (str): The hostname or IP address to trace
-        num_traces (int): Number of traces to run
-        interval (int): Interval between traces in seconds
-        output_dir (str): Directory to save the output plot
+# Function to plot combined graph
+def plot_combined_graph(frame, all_data):
+    fig, ax = plt.subplots(facecolor="#1e1e1e")
+    colors = ["cyan", "lime", "magenta"]
 
-    Returns:
-        tuple: (DataFrame with trace data, path to the saved plot)
-    """
-    all_hops = []
+    for i, data in enumerate(all_data):
+        if not data:
+            continue  # Skip empty data
+        x = [hop["hop"] for hop in data]
+        y = [round(sum(filter(None, hop["rtt"])) / len(hop["rtt"]), 2) if any(hop["rtt"]) else 0 for hop in data]
+        ax.plot(x, y, marker="o", linestyle="-", color=colors[i], label=f"Trace {i+1}")
 
-    # Create output directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
+    ax.set_xlabel("Hop Number", color="white")
+    ax.set_ylabel("Average RTT (ms)", color="white")
+    ax.set_title("Combined Traceroute Analysis", color="white")
+    ax.legend()
+    ax.tick_params(colors="white")
+    ax.set_facecolor("#2b2b2b")
 
-    print(f"Running {num_traces} traceroutes to {destination}...")
+    for widget in frame.winfo_children():
+        widget.destroy()
 
-    for i in range(num_traces):
-        if i > 0:
-            print(f"Waiting {interval} seconds before next trace...")
-            time.sleep(interval)
+    canvas = FigureCanvasTkAgg(fig, master=frame)
+    canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+    canvas.draw()
 
-        print(f"Trace {i+1}/{num_traces}...")
-        output = execute_traceroute(destination)
-        hops = parse_traceroute(output)
+# Function to run traceroute and update UI
+def run_traceroute(destination, tree, graph_frame, status_label, results_storage, combined_graph_frame):
+    status_label.config(text=f"Tracing {destination}...", foreground="cyan")
+    raw_output = execute_traceroute(destination)
 
-        # Add timestamp and trace number
-        timestamp = time.strftime("%H:%M:%S")
-        for hop in hops:
-            hop['trace_num'] = i + 1
-            hop['timestamp'] = timestamp
-            all_hops.append(hop)
+    if "Error" in raw_output:
+        messagebox.showerror("Traceroute Error", raw_output)
+        status_label.config(text=f"Failed to trace {destination}", foreground="red")
+        return
 
-    # Convert to DataFrame for easier analysis
-    df = pd.DataFrame(all_hops)
+    parsed_data = parse_traceroute(raw_output)
 
-    # Calculate average RTT for each hop (excluding timeouts)
-    df['avg_rtt'] = df['rtt'].apply(lambda x: np.mean([r for r in x if r is not None]) if any(r is not None for r in x) else None)
+    # Update UI safely from the main thread
+    root.after(0, lambda: update_table(tree, parsed_data))
+    root.after(0, lambda: plot_graph(graph_frame, parsed_data, title=f"RTT for {destination}"))
 
-    # Plot the results
-    plt.figure(figsize=(12, 6))
+    # Store the data for the combined graph
+    results_storage.append(parsed_data)
+    if len(results_storage) > 3:  # Keep only the latest 3 results
+        results_storage.pop(0)
 
-    # Create a subplot for RTT by hop
-    ax1 = plt.subplot(1, 1, 1)
+    root.after(0, lambda: plot_combined_graph(combined_graph_frame, results_storage))
 
-    # Group by trace number and hop number
-    for trace_num in range(1, num_traces + 1):
-        trace_data = df[df['trace_num'] == trace_num]
+    status_label.config(text=f"Trace complete: {destination}", foreground="lime")
 
-        # Plot each trace with a different color
-        ax1.plot(trace_data['hop'], trace_data['avg_rtt'], 'o-',
-                label=f'Trace {trace_num} ({trace_data.iloc[0]["timestamp"]})')
+# Function to start traceroute in a thread
+def start_traceroute(destination, tree, graph_frame, status_label, results_storage, combined_graph_frame):
+    threading.Thread(target=lambda: run_traceroute(destination, tree, graph_frame, status_label, results_storage, combined_graph_frame), daemon=True).start()
 
-    # Add labels and legend
-    ax1.set_xlabel('Hop Number')
-    ax1.set_ylabel('Average Round Trip Time (ms)')
-    ax1.set_title(f'Traceroute Analysis for {destination}')
-    ax1.grid(True, linestyle='--', alpha=0.7)
-    ax1.legend()
+# GUI Setup
+root = tk.Tk()
+root.title("Traceroute Analyzer")
+root.geometry("900x600")
+root.configure(bg="#1e1e1e")
 
-    # Make sure hop numbers are integers
-    ax1.xaxis.set_major_locator(MaxNLocator(integer=True))
+# Apply dark theme
+style = ttk.Style()
+style.theme_use("clam")
+style.configure("Dark.TFrame", background="#1e1e1e")
+style.configure("Treeview", background="#2b2b2b", foreground="white", fieldbackground="#2b2b2b")
+style.configure("Treeview.Heading", background="#1e1e1e", foreground="white")
+style.configure("TLabel", background="#1e1e1e", foreground="white")
+style.configure("TButton", background="#444", foreground="white", padding=5)
+style.map("TButton", background=[("active", "#666")])
 
-    plt.tight_layout()
+notebook = ttk.Notebook(root)
 
-    # Save the plot to a file instead of displaying it
-    timestamp = time.strftime("%Y%m%d-%H%M%S")
-    safe_dest = destination.replace('.', '-')
-    output_file = os.path.join(output_dir, f"trace_{safe_dest}_{timestamp}.png")
-    plt.savefig(output_file)
-    plt.close()
+# Define destinations and data storage
+destinations = ["bbc.co.uk", "amazon.com", "google.com"]
+tables = []
+graph_frames = []
+status_labels = []
+results_storage = [[] for _ in range(3)]
 
-    print(f"Plot saved to: {output_file}")
+frames = [ttk.Frame(notebook, style="Dark.TFrame") for _ in range(4)]
 
-    # Return the dataframe and the path to the saved plot
-    return df, output_file
+# Create 3 tabs for individual traces
+for i, frame in enumerate(frames[:3]):
+    notebook.add(frame, text=destinations[i])
 
-# Test the functions
-if __name__ == "__main__":
-    # Test destinations
-    destinations = [
-        "google.com",
-        "amazon.com",
-        "bbc.co.uk"  # International site
-    ]
+    status_label = ttk.Label(frame, text="Waiting to start...", style="TLabel")
+    status_label.pack(pady=5)
+    status_labels.append(status_label)
 
-    for dest in destinations:
-        df, plot_path = visualize_traceroute(dest, num_traces=3, interval=5)
-        print(f"\nAverage RTT by hop for {dest}:")
-        avg_by_hop = df.groupby('hop')['avg_rtt'].mean()
-        print(avg_by_hop)
-        print("\n" + "-"*50 + "\n")
+    table = ttk.Treeview(frame, columns=("Hop", "IP", "Hostname", "Avg RTT"), show="headings", style="Treeview")
+    for col in ("Hop", "IP", "Hostname", "Avg RTT"):
+        table.heading(col, text=col)
+        table.column(col, anchor="center")
+    table.pack(fill=tk.BOTH, expand=True)
+    tables.append(table)
+
+    graph_frame = ttk.Frame(frame, style="Dark.TFrame")
+    graph_frame.pack(fill=tk.BOTH, expand=True)
+    graph_frames.append(graph_frame)
+
+    start_button = ttk.Button(frame, text="Start Trace", command=lambda i=i: start_traceroute(destinations[i], tables[i], graph_frames[i], status_labels[i], results_storage, frames[3]))
+    start_button.pack(pady=5)
+
+# Combined Graph Tab
+notebook.add(frames[3], text="Combined Graph")
+combined_graph_frame = ttk.Frame(frames[3], style="Dark.TFrame")
+combined_graph_frame.pack(fill=tk.BOTH, expand=True)
+
+notebook.pack(expand=True, fill="both")
+root.mainloop()
